@@ -1,166 +1,166 @@
-import graphene
-from graphene_django import DjangoObjectType
-from django.core.validators import validate_email
-from django.core.exceptions import ValidationError
-from django.db import transaction
-from crm.models import Customer, Product, Order
+import re
 
-# -------------------
-# GraphQL Types
-# -------------------
+import graphene
+from graphene import Decimal
+from graphene_django import DjangoObjectType
+from graphql import GraphQLError
+from decimal import Decimal as D
+from crm.models import Customer, Order, Product
+from graphene_django.filter import DjangoFilterConnectionField
+from graphene import relay
+from crm.filters import CustomerFilter, ProductFilter, OrderFilter
+
+
 class CustomerType(DjangoObjectType):
     class Meta:
         model = Customer
-        fields = ("id", "name", "email", "phone")
+        filterset_class = CustomerFilter
+        interfaces = (relay.Node,)
 
-class ProductType(DjangoObjectType):
-    class Meta:
-        model = Product
-        fields = ("id", "name", "price", "stock")
 
 class OrderType(DjangoObjectType):
     class Meta:
         model = Order
-        fields = ("id", "customer", "products", "total_amount", "order_date")
+        filterset_class = OrderFilter
+        interfaces = (relay.Node,)
 
 
-# -------------------
-# Create Customer
-# -------------------
+class ProductType(DjangoObjectType):
+    class Meta:
+        model = Product
+        filterset_class = ProductFilter
+        interfaces = (relay.Node,)
+
+
 class CreateCustomer(graphene.Mutation):
     class Arguments:
         name = graphene.String(required=True)
         email = graphene.String(required=True)
-        phone = graphene.String(required=False)
+        phone = graphene.String()
 
     customer = graphene.Field(CustomerType)
     message = graphene.String()
 
-    @classmethod
-    def mutate(cls, root, info, name, email, phone=None):
-        # Validate email
-        try:
-            validate_email(email)
-        except ValidationError:
-            return CreateCustomer(customer=None, message="Invalid email format")
-
-        # Ensure unique email
+    def mutate(self, info, name, email, phone):
         if Customer.objects.filter(email=email).exists():
-            return CreateCustomer(customer=None, message="Email already exists")
-
-        # Validate phone (basic)
-        if phone and not (phone.startswith("+") or phone.replace("-", "").isdigit()):
-            return CreateCustomer(customer=None, message="Invalid phone format")
-
-        customer = Customer.objects.create(name=name, email=email, phone=phone)
+            raise Exception("Email already exists")
+        if phone and not re.match(r'^(\+?\d{7,15}|\d{3}-\d{3}-\d{4})$', phone):
+            raise Exception("Invalid phone format")
+        customer = Customer(name=name, email=email, phone=phone or "")
+        customer.save()
         return CreateCustomer(customer=customer, message="Customer created successfully")
 
 
-# -------------------
-# Bulk Create Customers
-# -------------------
 class BulkCreateCustomers(graphene.Mutation):
     class Arguments:
-        input = graphene.List(
-            graphene.JSONString, required=True, description="List of customers"
-        )
+        input = graphene.List(graphene.JSONString, required=True)
 
     customers = graphene.List(CustomerType)
     errors = graphene.List(graphene.String)
 
-    @classmethod
-    def mutate(cls, root, info, input):
-        created_customers = []
+    def mutate(self, info, input):
+        created = []
         errors = []
 
-        with transaction.atomic():
-            for idx, data in enumerate(input):
+        for i, data in enumerate(input):
+            try:
                 name = data.get("name")
                 email = data.get("email")
-                phone = data.get("phone")
+                phone = data.get("phone", "")
 
-                # Validation
-                try:
-                    validate_email(email)
-                except ValidationError:
-                    errors.append(f"Row {idx+1}: Invalid email {email}")
-                    continue
-
+                if not name or not email:
+                    raise Exception(f"Missing required fields for record {i + 1}")
                 if Customer.objects.filter(email=email).exists():
-                    errors.append(f"Row {idx+1}: Email already exists ({email})")
-                    continue
+                    raise Exception(f"Email already exists: {email}")
+                if phone and not re.match(r'^(\+?\d{7,15}|\d{3}-\d{3}-\d{4})$', phone):
+                    raise Exception(f"Invalid phone format: {phone}")
 
-                if phone and not (phone.startswith("+") or phone.replace("-", "").isdigit()):
-                    errors.append(f"Row {idx+1}: Invalid phone format ({phone})")
-                    continue
+                customer = Customer(name=name, email=email, phone=phone)
+                customer.save()
+                created.append(customer)
 
-                # Create valid customer
-                customer = Customer.objects.create(name=name, email=email, phone=phone)
-                created_customers.append(customer)
+            except Exception as e:
+                errors.append(str(e))
 
-        return BulkCreateCustomers(customers=created_customers, errors=errors)
+        return BulkCreateCustomers(customers=created, errors=errors)
 
 
-# -------------------
-# Create Product
-# -------------------
 class CreateProduct(graphene.Mutation):
     class Arguments:
         name = graphene.String(required=True)
-        price = graphene.Float(required=True)
-        stock = graphene.Int(required=False, default_value=0)
+        price = Decimal(required=True)
+        stock = graphene.Int()
 
     product = graphene.Field(ProductType)
-    message = graphene.String()
 
-    @classmethod
-    def mutate(cls, root, info, name, price, stock=0):
+    def mutate(self, info, name, price, stock=0):
         if price <= 0:
-            return CreateProduct(product=None, message="Price must be positive")
+            raise Exception("Price must be a positive value.")
         if stock < 0:
-            return CreateProduct(product=None, message="Stock cannot be negative")
+            raise Exception("Stock cannot be negative.")
+        product = Product(name=name, price=D(price), stock=stock)
+        product.save()
+        return CreateProduct(product=product)
 
-        product = Product.objects.create(name=name, price=price, stock=stock)
-        return CreateProduct(product=product, message="Product created successfully")
 
-
-# -------------------
-# Create Order
-# -------------------
 class CreateOrder(graphene.Mutation):
     class Arguments:
         customer_id = graphene.ID(required=True)
         product_ids = graphene.List(graphene.ID, required=True)
-        order_date = graphene.DateTime(required=False)
+        order_date = graphene.DateTime()
 
     order = graphene.Field(OrderType)
-    message = graphene.String()
 
-    @classmethod
-    def mutate(cls, root, info, customer_id, product_ids, order_date=None):
+    def mutate(self, info, customer_id, product_ids, order_date=None):
         try:
             customer = Customer.objects.get(pk=customer_id)
         except Customer.DoesNotExist:
-            return CreateOrder(order=None, message=f"Invalid customer ID {customer_id}")
+            raise Exception("Invalid customer ID")
 
-        products = Product.objects.filter(pk__in=product_ids)
-        if not products.exists():
-            return CreateOrder(order=None, message="No valid products found")
+        if not product_ids:
+            raise Exception("At least one product must be selected")
 
-        if len(products) != len(product_ids):
-            return CreateOrder(order=None, message="Some product IDs are invalid")
+        products = []
+        total = 0
+        for pid in product_ids:
+            try:
+                product = Product.objects.get(pk=pid)
+                total += float(product.price)
+                products.append(product)
+            except Product.DoesNotExist:
+                raise Exception(f"Invalid product ID: {pid}")
 
-        # Calculate total
-        total_amount = sum(p.price for p in products)
-
-        order = Order.objects.create(
-            customer=customer,
-            total_amount=total_amount,
-            order_date=order_date or None,
-        )
+        order = Order(customer=customer, total_amount=total)
+        if order_date:
+            order.order_date = order_date
+        order.save()
         order.products.set(products)
+        return CreateOrder(order=order)
 
-        return CreateOrder(order=order, message="Order created successfully")
+
+class UpdateLowStockProducts(graphene.Mutation):
+    class Arguments:
+        pass
+
+    success = graphene.String()
+    updated_products = graphene.List(graphene.String)
+
+    def mutate(self, info):
+        # Query products with stock < 10
+        low_stock_products = Product.objects.filter(stock__lt=10)
+        updated_products = []
+
+        # Increment their stock by 10 (simulating restocking)
+        for product in low_stock_products:
+            product.stock += 10
+            product.save()
+            updated_products.append(f"{product.name} (Stock: {product.stock})")
+
+        # Return a list of updated products and a success message
+        return UpdateLowStockProducts(
+            success="Low stock products updated successfully!",
+            updated_products=updated_products
+        )
 
 
 class Mutation(graphene.ObjectType):
@@ -168,4 +168,22 @@ class Mutation(graphene.ObjectType):
     bulk_create_customers = BulkCreateCustomers.Field()
     create_product = CreateProduct.Field()
     create_order = CreateOrder.Field()
+    update_low_stock_products = UpdateLowStockProducts.Field()
 
+
+class Query(graphene.ObjectType):
+    all_customers = DjangoFilterConnectionField(CustomerType)
+    all_products = DjangoFilterConnectionField(ProductType)
+    all_orders = DjangoFilterConnectionField(OrderType)
+
+    def resolve_all_customers(root, info, order_by=None, **kwargs):
+        qs = Customer.objects.all()
+        return qs.order_by(order_by) if order_by else qs
+
+    def resolve_all_products(root, info, order_by=None, **kwargs):
+        qs = Product.objects.all()
+        return qs.order_by(order_by) if order_by else qs
+
+    def resolve_all_orders(root, info, order_by=None, **kwargs):
+        qs = Order.objects.all()
+        return qs.order_by(order_by) if order_by else qs
