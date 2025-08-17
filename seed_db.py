@@ -1,32 +1,63 @@
+# seed_db.py
+
 import os
 import django
-from decimal import Decimal
+from datetime import datetime
 
-# Setup Django environment
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "graphql_crm.settings")
+# إعداد Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'alx_backend_graphql_crm.settings')
 django.setup()
 
 from crm.models import Customer, Product, Order
 
-def run():
-    # Clear existing data (optional for dev/demo only!)
-    Customer.objects.all().delete()
-    Product.objects.all().delete()
-    Order.objects.all().delete()
+def seed_customers():
+    customers_data = [
+        {"name": "Alice", "email": "alice@example.com", "phone": "+1234567890"},
+        {"name": "Bob", "email": "bob@example.com", "phone": "123-456-7890"},
+        {"name": "Carol", "email": "carol@example.com"}
+    ]
 
-    # Create Customers
-    alice = Customer.objects.create(name="Alice", email="alice@example.com", phone="+1234567890")
-    bob = Customer.objects.create(name="Bob", email="bob@example.com")
+    created = []
+    for data in customers_data:
+        if not Customer.objects.filter(email=data["email"]).exists():
+            customer = Customer(**data)
+            customer.save()
+            created.append(customer)
+    print(f"{len(created)} customers created.")
+    return created
 
-    # Create Products
-    laptop = Product.objects.create(name="Laptop", price=Decimal("999.99"), stock=10)
-    phone = Product.objects.create(name="Phone", price=Decimal("499.99"), stock=20)
+def seed_products():
+    products_data = [
+        {"name": "Laptop", "price": 999.99, "stock": 10},
+        {"name": "Mouse", "price": 25.50, "stock": 50},
+        {"name": "Keyboard", "price": 45.00, "stock": 30}
+    ]
 
-    # Create Order for Alice
-    order = Order.objects.create(customer=alice, total_amount=laptop.price + phone.price)
-    order.products.set([laptop, phone])
+    created = []
+    for data in products_data:
+        product, created_flag = Product.objects.get_or_create(name=data["name"], defaults=data)
+        if created_flag:
+            created.append(product)
+    print(f"{len(created)} products created.")
+    return Product.objects.all()
 
-    print("✅ Database seeded successfully!")
+def seed_orders(customers, products):
+    if not customers or not products:
+        print("No customers or products to create orders.")
+        return
+
+    order = Order.objects.create(
+        customer=customers[0],
+        total_amount=sum(p.price for p in products),
+        order_date=datetime.now()
+    )
+    order.products.set(products)
+    order.save()
+    print("1 order created.")
 
 if __name__ == "__main__":
-    run()
+    print("📦 Seeding CRM database...")
+    customers = seed_customers()
+    products = seed_products()
+    seed_orders(customers, products)
+    print("✅ Done seeding.")

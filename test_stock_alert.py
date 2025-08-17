@@ -1,32 +1,52 @@
-import os
-import django
-from decimal import Decimal
+#!/usr/bin/env python3
+"""
+Test script for the GraphQL stock alert mutation
+"""
 
-# Setup Django environment
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "graphql_crm.settings")
+import os
+import sys
+import django
+
+# Add the project directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Setup Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'alx_backend_graphql_crm.settings')
 django.setup()
 
-from crm.models import Customer, Product, Order
+from crm.models import Product
+from crm.cron import update_low_stock
 
-def run():
-    # Clear existing data (optional for dev/demo only!)
-    Customer.objects.all().delete()
-    Product.objects.all().delete()
-    Order.objects.all().delete()
-
-    # Create Customers
-    alice = Customer.objects.create(name="Alice", email="alice@example.com", phone="+1234567890")
-    bob = Customer.objects.create(name="Bob", email="bob@example.com")
-
-    # Create Products
-    laptop = Product.objects.create(name="Laptop", price=Decimal("999.99"), stock=10)
-    phone = Product.objects.create(name="Phone", price=Decimal("499.99"), stock=20)
-
-    # Create Order for Alice
-    order = Order.objects.create(customer=alice, total_amount=laptop.price + phone.price)
-    order.products.set([laptop, phone])
-
-    print("✅ Database seeded successfully!")
+def test_stock_alert():
+    """Test the stock alert functionality"""
+    
+    # Create some test products with low stock
+    Product.objects.create(name="Test Product 1", price=10.00, stock=5)
+    Product.objects.create(name="Test Product 2", price=20.00, stock=3)
+    Product.objects.create(name="Test Product 3", price=15.00, stock=15)  # This should not be updated
+    
+    print("Created test products:")
+    for product in Product.objects.all():
+        print(f"  {product.name}: Stock {product.stock}")
+    
+    print("\nRunning stock alert update...")
+    
+    # Run the cron job function
+    result = update_low_stock()
+    print(f"Result: {result['success']}")
+    print(f"Updated products: {result['updated_products']}")
+    
+    print("\nAfter update:")
+    for product in Product.objects.all():
+        print(f"  {product.name}: Stock {product.stock}")
+    
+    # Check if log file was created
+    if os.path.exists('low_stock_updates_log.txt'):
+        print("\nLog file contents:")
+        with open('low_stock_updates_log.txt', 'r') as f:
+            print(f.read())
+    else:
+        print("\nLog file not found at low_stock_updates_log.txt")
 
 if __name__ == "__main__":
-    run()
+    test_stock_alert() 
