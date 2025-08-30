@@ -1,7 +1,13 @@
 from datetime import datetime
 from crm.models import Product
+from gql import gql, Client
+from gql.transport.requests import RequestsHTTPTransport
+
 
 def log_crm_heartbeat():
+    """
+    Log a CRM heartbeat message and optionally query the GraphQL hello field.
+    """
     # Log the heartbeat message
     with open('/tmp/crm_heartbeat_log.txt', 'a') as log_file:
         log_file.write(f"{datetime.now().strftime('%d/%m/%Y-%H:%M:%S')} CRM is alive\n")
@@ -20,6 +26,7 @@ def log_crm_heartbeat():
     except Exception as e:
         print(f"Error querying GraphQL endpoint: {e}")
 
+
 def update_low_stock():
     """
     Update low stock products by incrementing their stock by 10.
@@ -36,8 +43,8 @@ def update_low_stock():
             product.save()
             updated_products.append(f"{product.name} (Stock: {product.stock})")
 
-        # Log updated product names and new stock levels to low_stock_updates_log.txt with a timestamp
-        with open('low_stock_updates_log.txt', 'a') as log_file:
+        # Log updates with a timestamp
+        with open('/tmp/low_stock_updates_log.txt', 'a') as log_file:
             log_file.write(f"{datetime.now().strftime('%d/%m/%Y-%H:%M:%S')} - Low stock products updated successfully!\n")
             for product in updated_products:
                 log_file.write(f"{product}\n")
@@ -47,6 +54,7 @@ def update_low_stock():
             'success': 'Low stock products updated successfully!',
             'updated_products': updated_products
         }
+
     except Exception as e:
         print(f"Error updating low stock products: {e}")
         return {
