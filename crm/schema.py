@@ -1,5 +1,5 @@
 import re
-
+import graphene
 from graphene import Decimal, relay
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
