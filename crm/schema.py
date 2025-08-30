@@ -4,7 +4,9 @@ from graphene import Decimal, relay
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
 from decimal import Decimal as D
-from crm.models import Customer, Order, Product
+from crm.models import Customer, Order
+from crm.models import  Product
+
 from graphene_django.filter import DjangoFilterConnectionField
 from crm.filters import CustomerFilter, ProductFilter, OrderFilter
 
