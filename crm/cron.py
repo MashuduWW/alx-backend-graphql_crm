@@ -27,7 +27,7 @@ def log_crm_heartbeat():
         print(f"Error querying GraphQL endpoint: {e}")
 
 
-def update_low_stock():
+def updateLowStockProducts():
     """
     Update low stock products by incrementing their stock by 10.
     This function simulates the GraphQL mutation behavior directly.

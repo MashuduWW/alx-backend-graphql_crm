@@ -1,13 +1,11 @@
 import re
 
-import graphene
-from graphene import Decimal
+from graphene import Decimal, relay
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
 from decimal import Decimal as D
 from crm.models import Customer, Order, Product
 from graphene_django.filter import DjangoFilterConnectionField
-from graphene import relay
 from crm.filters import CustomerFilter, ProductFilter, OrderFilter
 
 
